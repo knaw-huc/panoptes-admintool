@@ -16,8 +16,8 @@ import sys
 
 def export(connection,schema,filename_out):
     for coll_name in connection['main'].list_collection_names():
-        tenant = {}
         for items in connection['main'][coll_name].find(projection=proj):
+            tenant = {}
             for item in items:
                 tenant[item] = items[item]
             name = tenant['name']
@@ -36,9 +36,8 @@ def export(connection,schema,filename_out):
                 dataset[f'{item_2}'] = ds_parts
             datasets.append(dataset)
             tenant['datasets'] = datasets
-        res.append(tenant)
+            res.append(tenant)
     try:
-        validate(res,schema=schema)
         with open(filename_out,'w') as uitvoer:
             json.dump(res,uitvoer,indent=2)
     except Exception as err:
@@ -55,7 +54,7 @@ def import_file(connection,schema,invoer):
     except Exception as err:
         stderr('result does not validate against schema')
         stderr(err)
-#        stderr(best_match(Draft202012Validator(schema).iter_errors(res)).message)
+        return
 
     stderr('import file to be developped')
 
