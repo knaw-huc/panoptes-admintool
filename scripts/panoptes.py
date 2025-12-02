@@ -9,7 +9,7 @@ import locale
 locale.setlocale(locale.LC_ALL, 'nl_NL') 
 import pandas as pd
 import pprint as pp
-from pymongo import MongoClient
+from pymongo import MongoClient, ReplaceOne, InsertOne
 import re
 import sys
 
@@ -26,7 +26,6 @@ def export(connection,schema,filename_out):
             for item in connection[name]['datasets'].find(projection=proj):
                 dataset = item
                 break
-                datasets.append(item)
             for item_2 in connection[name].list_collection_names():
                 if item_2=='datasets':
                     continue
@@ -37,13 +36,8 @@ def export(connection,schema,filename_out):
             datasets.append(dataset)
             tenant['datasets'] = datasets
             res.append(tenant)
-    try:
-        with open(filename_out,'w') as uitvoer:
-            json.dump(res,uitvoer,indent=2)
-    except Exception as err:
-        stderr('result does not validate against schema')
-        stderr(err)
-        stderr(best_match(Draft202012Validator(schema).iter_errors(res)).message)
+    with open(filename_out,'w') as uitvoer:
+        json.dump(res,uitvoer,indent=2)
 
 
 def import_file(connection,schema,invoer):
@@ -52,11 +46,118 @@ def import_file(connection,schema,invoer):
     try:
         validate(json_data,schema)
     except Exception as err:
-        stderr('result does not validate against schema')
+        stderr(f'{invoer} does not validate against schema:')
         stderr(err)
         return
+    stderr('import file; to be developped')
 
-    stderr('import file to be developped')
+    pp.pprint(json_data,indent=2)
+    # name en domain naar "main"
+    name =  json_data[0]['name']
+    orig = {'name': name }
+    update = { 'name': json_data[0]['name'],
+                'domain': json_data[0]['domain'] }
+    try:
+        result = connection.main.tenants.bulk_write([ReplaceOne(orig,update, upsert=True)])
+        stderr(f'update tenant succeeded:\n{result.modified_count}\n')
+    except Exception as err:
+        stderr('update tenant failed:')
+        stderr(err)
+        exit(1)
+
+    datasets = json_data[0]['datasets']
+
+    # datasets splitsen:
+    facets = datasets[0].pop('facets')
+    result_properties = datasets[0].pop('result_properties')
+    detail_properties = datasets[0].pop('detail_properties')
+
+    # updates
+    stderr('datasets')
+    for item in connection[name]['datasets'].find(projection=proj):
+        if not 'datasets' in item:
+            continue
+        orig =  { 'datasets': item['datasets'] }
+#        stderr(f'orig:\n{orig}')
+#        stderr(f'item: {item["datasets"]}')
+        for old in item['datasets']:
+            filter = { "name" : old['name'],
+                   "tenant_name": old['tenant_name'] }
+
+            for nieuw in datasets:
+                update = nieuw
+                try:
+                    result = connection[name]['datasets'].bulk_write(
+                            [ReplaceOne(filter,nieuw, upsert=True)])
+                    stderr(f'update datasets succeeded\n{result.modified_count}\n')
+                except Exception as err:
+                    stderr('update datasets failed:')
+                    stderr(err)
+                    stderr(f'filter: {filter}')
+                    stderr(f'orig:\n{orig}')
+                    stderr(f'update:\n{update}')
+                    exit(1)
+
+    # facets
+    stderr('facets')
+    old_facets = []
+    for item in connection[name].list_collection_names():
+        if item=='facets':
+            stderr(f'item: {item}')
+            for doc in connection[name][item].find(projection=proj):
+                old_facets.append(doc)
+            break
+    orig =  { 'facets': old_facets }
+    update = { 'facets' : facets }
+    try:
+        result = connection.main[name].bulk_write([ReplaceOne(filter,update, upsert=True)])
+        stderr(f'update facets succeeded:\n{result.modified_count}\n')
+    except Exception as err:
+        stderr('update facets failed:')
+        stderr(err)
+        stderr(f'orig:\n{orig}')
+        stderr(f'update:\n{update}')
+        exit(1)
+
+#    result_properties
+    stderr('result_properties')
+    orig =  []
+    for item in connection[name].list_collection_names():
+        if item=='result_properties':
+            for doc in connection[name][item].find(projection=proj):
+                orig.append(doc)
+            break
+ 
+    update = { 'result_properties': result_properties }
+    try:
+        result = connection.main[name].bulk_write([ReplaceOne(filter,update, upsert=True)])
+        stderr(f'update result_properties succeeded\n{result.modified_count}\n')
+    except Exception as err:
+        stderr('update result_properties failed:')
+        stderr(err)
+        stderr(f'orig:\n{orig}')
+        stderr(f'update:\n{update}')
+        exit(1)
+
+    #    detail_properties
+    stderr('detail_properties')
+    orig =  []
+    for item in connection[name].list_collection_names():
+        if item=='detail_properties':
+            for doc in connection[name][item].find(projection=proj):
+                orig.append(doc)
+            break
+ 
+    update = { 'detail_properties': detail_properties }
+    try:
+        result = connection.main[name].bulk_write([ReplaceOne(filter,update, upsert=True)])
+        stderr(f'update detail_properties succeeded\n{result.modified_count}\n')
+    except Exception as err:
+        stderr('update detail_properties failed:')
+        stderr(err)
+        stderr(f'orig:\n{orig}')
+        stderr(f'update:\n{update}')
+        exit(1)
 
 
 def stderr(text,nl="\n"):
