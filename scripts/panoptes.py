@@ -77,7 +77,7 @@ def import_file(connection,schema,invoer):
             stderr('update tenant failed:')
             stderr(err)
 
-        handle_datasets(name,json_data[0]['datasets'],connection)
+        handle_datasets(name,item['datasets'],connection)
 
 
 def handle_datasets(name,datasets,connection):
