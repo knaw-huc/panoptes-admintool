@@ -64,20 +64,45 @@ def import_file(connection,schema,invoer):
 
     pp.pprint(json_data,indent=2)
 
+    updates_tenants = []
     for item in json_data:
         # name en domain naar "main"
         name =  item['name']
         orig = {'name': name }
         update = { 'name': item['name'],
                    'domain': item['domain'] }
+        updates_tenants.append(update)
         try:
             result = connection.main.tenants.bulk_write([ReplaceOne(orig,update, upsert=True)])
             stderr(f'update tenant succeeded:\n{result.modified_count}\n')
         except Exception as err:
             stderr('update tenant failed:')
             stderr(err)
-
         handle_datasets(name,item['datasets'],connection)
+
+        #
+        # delete tenants
+        #
+    stderr(f'updates_tenants: {updates_tenants}')
+    for item in connection.main.tenants.find(projection=proj):
+        tenant_name = item['name']
+        tenant = { 'name': tenant_name,
+                   'domain': item['domain'] }
+        stderr(f'tenant: {tenant}')
+        if not tenant in updates_tenants:
+            stderr(f'{tenant} NOT in updates')
+            # drop de collections in tenant
+            for coll_name in connection[tenant_name].list_collection_names():
+                connection[tenant_name].drop_collection(coll_name)
+            try:
+                result = connection.main.drop_collection(tenant_name)
+                stderr(f'OK?: {result}')
+            except Exception as err:
+                if f'{err}'=='No operations to execute':
+                    stderr(err)
+                else:
+                    stderr(f'delete tenant {tenant_name} failed:')
+                    stderr(err)
 
 
 def handle_datasets(name,datasets,connection):
@@ -131,36 +156,51 @@ deleted:  {result.deleted_count}
                 stderr(f'update:\n{update}')
                 exit(1)
 
-    for coll_name in ['facets','result_properties','detail_properties']:
-        handle_mutations(coll_name,datasets,name,connection)
-
-
-def handle_mutations(coll_name,datasets,name,connection):
-    stderr(coll_name)
     for dataset in datasets:
-        requests = []
-        for update in dataset[coll_name]:
+        for coll_name in ['facets','result_properties','detail_properties']:
+            handle_mutations(coll_name,dataset,name,connection)
+
+
+def handle_mutations(coll_name,dataset,tenant_name,connection):
+    stderr(coll_name)
+    
+    requests = []
+    list_updates = []
+    for update in dataset[coll_name]:
             filter = { "name" : update['name'],
                        "dataset_name": dataset['name'] }
+            list_updates.append(update['name'])
             requests.append(ReplaceOne(filter,update, upsert=True))
-        try:
-            result = connection[name][coll_name].bulk_write(requests)
+    try:
+        if requests!=[]:
+            result = connection[tenant_name][coll_name].bulk_write(requests)
             stderr(message_succeed(coll_name,dataset["name"],result,'update'))
-        except Exception as err:
+    except Exception as err:
             stderr(f'''update {coll_name} failed:
 {err}
 filter: {filter}
 update: {update}
 ''')
 
-    stderr(f'delete {coll_name} from: {str(connection[name]["facets"].find(projection=proj))}')
+    stderr(f'delete {coll_name} from: {tenant_name}')
     requests = []
-    for facet in connection[name][coll_name].find(projection=proj):
-        if not facet in dataset[coll_name]:
-            requests.append(DeleteOne(facet))
+    if list_updates==[]:
+        # delete collection binnen deze tenant
+        res = connection[tenant_name].drop_collection(coll_name)
+        if res:
+            stderr(f'delete {coll_name} from {tenant_name} succeeded')
+            return
+
+    for item in connection[tenant_name][coll_name].find(projection=proj):
+        filter = {
+               "name" : item['name'],
+               "dataset_name": dataset['name']   
+                }
+        if not item['name'] in list_updates:
+            requests.append(DeleteOne(filter))
     stderr(f'requests: {requests}')
     try:
-        result = connection.main[name][coll_name].bulk_write(requests)
+        result = connection.main[tenant_name].bulk_write(requests)
         stderr(message_succeed(coll_name,dataset["name"],result,'delete'))
     except Exception as err:
             if f'{err}'=='No operations to execute':
