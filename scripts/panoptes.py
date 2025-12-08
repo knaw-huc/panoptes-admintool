@@ -1,6 +1,4 @@
 import argparse
-import bson
-from bson import ObjectId
 from datetime import datetime
 from datetime import date
 import json
@@ -8,7 +6,6 @@ from jsonschema import validate, Draft202012Validator
 from jsonschema.exceptions import best_match
 import locale
 locale.setlocale(locale.LC_ALL, 'nl_NL') 
-import pprint as pp
 from pymongo import MongoClient, ReplaceOne, InsertOne, DeleteOne
 import re
 import sys
@@ -20,7 +17,6 @@ def export(connection,schema,filename_out):
             tenant = {}
             for item in items:
                 tenant[item] = items[item]
-            stderr(tenant)
             try:
                 name = tenant['name']
             except:
@@ -28,22 +24,18 @@ def export(connection,schema,filename_out):
                 continue
             datasets = []
             dataset = {}
-            for item in connection[name]['datasets'].find(): #projection=proj):
+            for item in connection[name]['datasets'].find(projection=proj):
                 dataset = item
                 item['_id'] = str(item['_id'])
-#                stderr(f'dataset(1): {dataset}')
                 break
             for item_2 in connection[name].list_collection_names():
                 if item_2=='datasets':
                     continue
                 ds_parts = []
-                for doc in connection[name][item_2].find(): #projection=proj):
+                for doc in connection[name][item_2].find(projection=proj):
                     doc['_id'] = str(doc['_id'])
                     ds_parts.append(doc)
                 dataset[f'{item_2}'] = ds_parts
-#                stderr(f'dataset(2): {dataset}')
-#            for item in dataset:
-#                print(dataset)
             datasets.append(dataset)
             tenant['datasets'] = datasets
             res.append(tenant)
@@ -60,13 +52,10 @@ def import_file(connection,schema,invoer):
         stderr(f'{invoer} does not validate against schema:')
         stderr(err)
         return
-    stderr('import file; to be developped')
 
-    pp.pprint(json_data,indent=2)
-
+    stderr('tenants')
     updates_tenants = []
     for item in json_data:
-        # name en domain naar "main"
         name =  item['name']
         orig = {'name': name }
         update = { 'name': item['name'],
@@ -74,7 +63,7 @@ def import_file(connection,schema,invoer):
         updates_tenants.append(update)
         try:
             result = connection.main.tenants.bulk_write([ReplaceOne(orig,update, upsert=True)])
-            stderr(f'update tenant succeeded:\n{result.modified_count}\n')
+            stderr(f'update tenant succeeded: {result.modified_count}')
         except Exception as err:
             stderr('update tenant failed:')
             stderr(err)
@@ -83,20 +72,19 @@ def import_file(connection,schema,invoer):
         #
         # delete tenants
         #
-    stderr(f'updates_tenants: {updates_tenants}')
     for item in connection.main.tenants.find(projection=proj):
         tenant_name = item['name']
         tenant = { 'name': tenant_name,
                    'domain': item['domain'] }
-        stderr(f'tenant: {tenant}')
         if not tenant in updates_tenants:
-            stderr(f'{tenant} NOT in updates')
             # drop de collections in tenant
             for coll_name in connection[tenant_name].list_collection_names():
                 connection[tenant_name].drop_collection(coll_name)
             try:
                 result = connection.main.drop_collection(tenant_name)
-                stderr(f'OK?: {result}')
+                filter = { 'name': tenant_name }
+                connection.main.tenants.bulk_write([DeleteOne(filter)])
+                #stderr(f'OK?: {result}')
             except Exception as err:
                 if f'{err}'=='No operations to execute':
                     stderr(err)
@@ -122,7 +110,7 @@ def handle_datasets(name,datasets,connection):
         requests.append(ReplaceOne(filter,update, upsert=True))
     try:
         result = connection[name]['datasets'].bulk_write(requests)
-        stderr(f'update datasets succeeded\n{result.modified_count}\n')
+        stderr(f'update datasets succeeded: {result.modified_count}')
     except Exception as err:
                     stderr('update datasets failed:')
                     stderr(err)
@@ -131,21 +119,14 @@ def handle_datasets(name,datasets,connection):
                     stderr(f'update:\n{update}')
 
 #    verwijder datasets
-
     requests = []
     for item in connection[name]['datasets'].find(projection=proj):
         print(item)
         if not item in updated_datasets:
             requests.append(DeleteOne(item))
-    stderr(requests)
     try:
             result = connection.main[name]['datasets'].bulk_write(requests)
-            stderr(f'''delete datasets succeeded:
-deleted:  {result.deleted_count}
-
-''')
-#            stderr(f'orig:\n{orig}')
-#            stderr(f'update:\n{update}\n')
+            stderr(f'delete datasets succeeded')
     except Exception as err:
             if f'{err}'=='No operations to execute':
                 stderr(err)
@@ -163,7 +144,6 @@ deleted:  {result.deleted_count}
 
 def handle_mutations(coll_name,dataset,tenant_name,connection):
     stderr(coll_name)
-    
     requests = []
     list_updates = []
     for update in dataset[coll_name]:
@@ -182,7 +162,6 @@ filter: {filter}
 update: {update}
 ''')
 
-    stderr(f'delete {coll_name} from: {tenant_name}')
     requests = []
     if list_updates==[]:
         # delete collection binnen deze tenant
@@ -198,7 +177,6 @@ update: {update}
                 }
         if not item['name'] in list_updates:
             requests.append(DeleteOne(filter))
-    stderr(f'requests: {requests}')
     try:
         result = connection.main[tenant_name].bulk_write(requests)
         stderr(message_succeed(coll_name,dataset["name"],result,'delete'))
@@ -218,11 +196,6 @@ modified: {result.modified_count}
 inserted: {result.inserted_count}
 deleted:  {result.deleted_count}
 '''
-
-def message_failed():
-    return f'''
-'''
-
 
 
 def stderr(text,nl="\n"):
@@ -267,7 +240,6 @@ if __name__ == "__main__":
     connection = MongoClient("mongodb://localhost:27017")
     #connection = MongoClient(f"mongodb://{config['user']}:{config['password']}@{config['host']}")
 
-    #with open('sync.json') as invoer:
     with open('schema.json') as invoer:
         schema = json.load(invoer)
     

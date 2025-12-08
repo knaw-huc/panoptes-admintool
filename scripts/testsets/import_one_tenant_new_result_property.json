@@ -1,0 +1,72 @@
+[
+  {
+    "name": "tenant-a",
+    "domain": "localhost_3",
+    "datasets": [
+      {
+        "name": "politieke-tijdschriften",
+        "tenant_name": "tenant-a",
+        "data_configuration": {
+          "id_property": "",
+          "base_url": "pt-3"
+        },
+        "data_type": "elasticsearch",
+        "detail_id": "id",
+        "es_index": "hi-ga-politieke-tijdschriften",
+        "facets": [
+            {
+                "dataset_name": "politieke-tijdschriften",
+                "name": "Magazine",
+                "property": "magazine.keyword",
+                "type": "tree"
+            },
+            {
+                "dataset_name": "politieke-tijdschriften",
+                "name": "Weblog",
+                "property": "weblog.keyword",
+                "type": "tree"
+            }
+        ],
+        "result_properties": [
+          {
+            "dataset_name": "politieke-tijdschriften",
+            "name": "id",
+            "path": "$.id",
+            "type": "number",
+            "order": 0
+          },
+          {
+            "dataset_name": "politieke-tijdschriften",
+            "name": "title",
+            "path": "$.title1",
+            "type": "text",
+            "order": 1
+          },
+          {
+            "dataset_name": "politieke-tijdschriften",
+            "name": "description",
+            "path": "$.korteOmschrijving",
+            "type": "text",
+            "order": 2
+          },
+          {
+            "dataset_name": "politieke-tijdschriften",
+            "name": "authors",
+            "path": "$.authors",
+            "type": "text",
+            "order": 3
+          }
+        ],
+        "detail_properties": [
+          {
+            "dataset_name": "politieke-tijdschriften",
+            "name": "another description",
+            "type": "list",
+            "path": "$.description",
+            "order": 0
+          }
+        ]
+      }
+    ]
+  }
+]
