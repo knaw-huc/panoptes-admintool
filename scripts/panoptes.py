@@ -11,7 +11,7 @@ import re
 import sys
 
 
-def export(connection,schema,filename_out):
+def export(connection,schema,filename_out,select_tenant):
     for coll_name in connection['main'].list_collection_names():
         for items in connection['main'][coll_name].find(projection=proj):
             tenant = {}
@@ -19,6 +19,9 @@ def export(connection,schema,filename_out):
                 tenant[item] = items[item]
             try:
                 name = tenant['name']
+                if select_tenant!='all':
+                    if name!=select_tenant:
+                        continue
             except:
                 #stderr(f'no name in tenant: {tenant}')
                 continue
@@ -26,14 +29,20 @@ def export(connection,schema,filename_out):
             dataset = {}
             for item in connection[name]['datasets'].find(projection=proj):
                 dataset = item
-                item['_id'] = str(item['_id'])
+                try:
+                    item['_id'] = str(item['_id'])
+                except:
+                    pass
                 break
             for item_2 in connection[name].list_collection_names():
                 if item_2=='datasets':
                     continue
                 ds_parts = []
                 for doc in connection[name][item_2].find(projection=proj):
-                    doc['_id'] = str(doc['_id'])
+                    try:
+                        doc['_id'] = str(doc['_id'])
+                    except:
+                        pass
                     ds_parts.append(doc)
                 dataset[f'{item_2}'] = ds_parts
             datasets.append(dataset)
@@ -43,7 +52,7 @@ def export(connection,schema,filename_out):
         json.dump(res,uitvoer,indent=2)
 
 
-def import_file(connection,schema,invoer):
+def import_file(connection,schema,invoer,select_tenant):
     with open(invoer) as inv:
         json_data = json.load(inv)
     try:
@@ -58,6 +67,8 @@ def import_file(connection,schema,invoer):
     for item in json_data:
         name =  item['name']
         orig = {'name': name }
+        if select_tenant!='all' and select_tenant!=name:
+            continue
         update = { 'name': item['name'],
                    'domain': item['domain'] }
         updates_tenants.append(update)
@@ -74,6 +85,8 @@ def import_file(connection,schema,invoer):
         #
     for item in connection.main.tenants.find(projection=proj):
         tenant_name = item['name']
+        if select_tenant!='all' and select_tenant!=tenant_name:
+            continue
         tenant = { 'name': tenant_name,
                    'domain': item['domain'] }
         if not tenant in updates_tenants:
@@ -212,12 +225,16 @@ def arguments():
     ap.add_argument('-f', '--file',
                     type=str,
                     default='sync.json',
-                    help="import/export file")
+                    help="import/export file (default=sync.json)")
     ap.add_argument('-c', '--choice',
                     type=str,
-                    help="Choose import or export",
+                    help="Choose import or export (default=export)",
                     choices=['import', 'export'],
                     default = 'export')
+    ap.add_argument('-t', '--tenant',
+                    type=str,
+                    default='all',
+                    help="Give tenant name to import or export on (default=all)")
     ap.add_argument("-d", "--debug", action="store_true")
     args = ap.parse_args()
     return args
@@ -227,6 +244,7 @@ if __name__ == "__main__":
     args = arguments()
     filename = args.file
     choice = args.choice
+    tenant = args.tenant
     debug = args.debug
     if debug:
         stderr(f'debug: {debug}')
@@ -251,13 +269,13 @@ if __name__ == "__main__":
             uitvoer = 'export_res.json'
         else:
             uitvoer = filename
-        export(connection,schema,uitvoer)
+        export(connection,schema,uitvoer,tenant)
     elif choice=='import':
         if debug:
             invoer = 'import.json'
         else:
             invoer = filename
-        import_file(connection,schema,invoer)
+        import_file(connection,schema,invoer,tenant)
 
     end_prog(0)
 
